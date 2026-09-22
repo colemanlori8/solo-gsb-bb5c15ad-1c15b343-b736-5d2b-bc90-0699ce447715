@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import TextView from './components/TextView'
 import CodingForm from './components/CodingForm'
@@ -7,6 +7,7 @@ import Sidebar from './components/Sidebar'
 import CooccurrenceView from './components/CooccurrenceView'
 import SpeakerView from './components/SpeakerView'
 import DistributionView from './components/DistributionView'
+import CoverageGapView from './components/CoverageGapView'
 import SearchBatchPanel from './components/SearchBatchPanel'
 
 export default function App() {
@@ -22,7 +23,7 @@ export default function App() {
   const [error, setError] = useState(null)
   const [showNewDoc, setShowNewDoc] = useState(false)
   const [newDoc, setNewDoc] = useState({ title: '', content: '' })
-  const [view, setView] = useState('text') // text | cooccurrence | speakers | distribution
+  const [view, setView] = useState('text') // text | cooccurrence | speakers | distribution | gaps
   const [coocStats, setCoocStats] = useState(null)
   const [coocLoading, setCoocLoading] = useState(false)
   const [coocError, setCoocError] = useState(null)
@@ -32,6 +33,11 @@ export default function App() {
   const [distStats, setDistStats] = useState(null)
   const [distLoading, setDistLoading] = useState(false)
   const [distError, setDistError] = useState(null)
+  const [gapStats, setGapStats] = useState(null)
+  const [gapLoading, setGapLoading] = useState(false)
+  const [gapError, setGapError] = useState(null)
+  const [gapMinLength, setGapMinLength] = useState(0)
+  const gapReqSeq = useRef(0)
   const [pendingLocate, setPendingLocate] = useState(null)
 
   const showError = useCallback((e) => {
@@ -161,6 +167,33 @@ export default function App() {
     loadDistribution()
   }, [loadDistribution])
 
+  // ---------- 覆盖缺口（随当前文档、编码筛选、标注变化与最小长度同步） ----------
+
+  const loadCoverageGaps = useCallback(async () => {
+    if (docId == null) return
+    // 编码全部取消勾选时同样请求后端（codes= 空串）：整文作为唯一缺口
+    const seq = ++gapReqSeq.current
+    setGapLoading(true)
+    setGapError(null)
+    try {
+      const data = await api.getCoverageGaps(docId, filteredCodeIds, gapMinLength)
+      // 快速调整最小长度时丢弃过期响应，避免旧结果覆盖新结果
+      if (seq === gapReqSeq.current) setGapStats(data)
+    } catch (e) {
+      if (seq === gapReqSeq.current) {
+        setGapStats(null)
+        setGapError(e.message || String(e))
+      }
+    } finally {
+      if (seq === gapReqSeq.current) setGapLoading(false)
+    }
+    // docData 变化（新建/编辑/删除标注后 refresh）也要重新统计
+  }, [docId, filteredCodeIds, docData, gapMinLength])
+
+  useEffect(() => {
+    loadCoverageGaps()
+  }, [loadCoverageGaps])
+
   // ---------- 编码创建 / 编辑（含冲突检测） ----------
 
   async function doSubmit(payload, resolution) {
@@ -284,6 +317,19 @@ export default function App() {
     setDocId(documentId)
     setView('text')
     setPendingLocate({ docId: documentId, start: seg.start, end: seg.end })
+  }
+
+  // 覆盖缺口 → 切回正文并闪烁定位
+  function handleLocateGap(gap) {
+    setView('text')
+    setPendingLocate({ docId, start: gap.start, end: gap.end })
+  }
+
+  // 覆盖缺口 → 整段区间带入现有编码表单（区间同步后提交仍走冲突预览流程）。
+  // 表单在右栏始终可见，不切走缺口视图，便于连续处理多个缺口。
+  function handleBringGapToForm(gap) {
+    setEditing(null)
+    setSelection({ start: gap.start, end: gap.end })
   }
 
   // 正文渲染完成后处理来自统计视图的待定位片段
@@ -438,6 +484,14 @@ export default function App() {
             >
               分布对比
             </button>
+            <button
+              role="tab"
+              aria-selected={view === 'gaps'}
+              className={view === 'gaps' ? 'active' : ''}
+              onClick={() => setView('gaps')}
+            >
+              覆盖缺口
+            </button>
           </div>
           {view === 'text' ? (
             <TextView
@@ -464,14 +518,24 @@ export default function App() {
               error={speakerError}
               onLocateSegment={handleLocateSegment}
             />
-          ) : (
+          ) : view === 'distribution' ? (
             <DistributionView
               stats={distStats}
               loading={distLoading}
               error={distError}
               onLocateCell={handleLocateCell}
             />
-          )}
+          ) : view === 'gaps' ? (
+            <CoverageGapView
+              stats={gapStats}
+              loading={gapLoading}
+              error={gapError}
+              minLength={gapMinLength}
+              onMinLengthChange={setGapMinLength}
+              onLocateGap={handleLocateGap}
+              onBringToForm={handleBringGapToForm}
+            />
+          ) : null}
         </section>
 
         <div className="right-panel">

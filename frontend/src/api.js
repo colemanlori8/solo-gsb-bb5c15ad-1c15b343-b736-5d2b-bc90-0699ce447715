@@ -39,6 +39,11 @@ export const api = {
     if (codeIds === null) return request('/code-distribution')
     return request(`/code-distribution?codes=${codeIds.join(',')}`)
   },
+  // 覆盖缺口；codeIds：null=全部编码；[]=不纳入任何编码（整文为缺口）
+  getCoverageGaps: (id, codeIds = null, minLength = 0) => {
+    const codesPart = codeIds === null ? '' : `codes=${codeIds.join(',')}&`
+    return request(`/documents/${id}/coverage-gaps?${codesPart}min_length=${minLength}`)
+  },
 
   listCodes: () => request('/codes'),
   createCode: (name, color) =>

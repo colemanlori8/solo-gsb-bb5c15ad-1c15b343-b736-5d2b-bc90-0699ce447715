@@ -56,6 +56,13 @@ docker compose up --build
   - 点击非零单元格自动**切换到该文档正文**、滚动并闪烁定位**首个对应片段**；
   - 后端在**单一快照**中计算并返回**缺失编码**（全部文档均无标注）与**空文档**（没有所选编码标注）提示，不修改任何原标注。
   - 对应 `GET /api/code-distribution?codes=1,2`（`codes` 为逗号分隔，缺省统计全部编码）。
+- **覆盖缺口视图**：正文区顶部切换到「覆盖缺口」标签，按当前文档与侧栏编码筛选列出**未被所选编码覆盖的连续文本区间**——
+  - 计算口径：先把所选编码的全部半开标注区间**跨编码合并重叠或相邻（首尾相接）**的部分得到覆盖并集（同编码自身重叠、不同编码间重叠都不重复计数），再在全文 `[0, 全文长度)` 上**求补集**；半开区间相邻处不视为缺口，**文首、文尾与零标注（整文一个缺口）场景均正确保留**；
+  - 接口返回每个缺口的**起止位置、长度与原文摘录**，以及覆盖字符数、覆盖率、覆盖并集与全量缺口计数；
+  - 顶部**最小缺口长度**输入框（后端按 `min_length` 过滤），**上一处 / 下一处**按钮在缺口间循环导航并自动切回正文闪烁定位；点击缺口本身同样切回正文、滚动并闪烁；
+  - 每个缺口可一键**带入编码表单**（整段区间自动填入右栏现有表单，选好编码后提交仍经过原有的**冲突预览**流程，可合并 / 拆分 / 保留边界）；
+  - 编码筛选变化、标注新增 / 编辑 / 删除后结果**自动同步刷新**；缺口为零时展示 **「✓ 已全覆盖」**空状态，缺口均短于阈值时单独提示。
+  - 对应 `GET /api/documents/{id}/coverage-gaps?codes=1,2&min_length=10`（`codes` 为逗号分隔，缺省统计全部编码，空串表示不纳入任何编码）。
 - **JSON 导出**：顶栏「导出 JSON」下载当前文档的完整编码结果（含每条标注的区间与原文切片），对应 `GET /api/documents/{id}/export`。
 - **持久化**：所有文档、编码本、标注均存于 SQLite，刷新页面后原样恢复；首次启动自动载入一份示例访谈与编码。
 
@@ -84,6 +91,7 @@ npm run dev   # http://localhost:5173
 | GET | `/api/documents/{id}/cooccurrence` | 编码两两共现统计，可带 `?codes=1&codes=2` 按编码筛选；返回每对编码合并后的共现字符数、片段数与原文摘录 |
 | GET | `/api/documents/{id}/speakers` | 说话人分析：解析「说话人：」发言段落，返回每位说话人（含未标注说话人）的文本长度、各编码覆盖字符数与覆盖率及片段摘录；`?codes=1,2` 按编码筛选（逗号分隔，缺省为全部编码） |
 | GET | `/api/code-distribution` | 跨文档编码分布对比：全部文档按所选编码汇总标注字符数、段数与占文档长度比例（文档按标题稳定排序，含行内差异百分比与首个片段），单一快照返回缺失编码与空文档提示；`?codes=1,2` 按编码筛选（逗号分隔，缺省为全部编码） |
+| GET | `/api/documents/{id}/coverage-gaps` | 覆盖缺口：跨编码合并重叠/相邻区间后对全文求补集，返回缺口起止、长度、原文摘录及覆盖统计（正确保留文首/文尾/零标注）；`?codes=1,2` 按编码筛选（空串为不纳入任何编码），`?min_length=10` 过滤最小缺口长度 |
 | GET | `/api/documents/{id}/export` | 导出 JSON（附件下载） |
 | GET / POST | `/api/codes` | 编码本列表 / 新建（重名返回 409） |
 | PUT / DELETE | `/api/codes/{id}` | 重命名、改色 / 删除（级联删除标注） |
@@ -105,11 +113,12 @@ npm run dev   # http://localhost:5173
 │       ├── cooccurrence.py   # 区间归一化 / 交集 / 共现统计纯函数
 │       ├── speakers.py       # 说话人发言段落解析与覆盖统计纯函数
 │       ├── distribution.py   # 跨文档编码分布对比统计纯函数
+│       ├── coverage.py       # 覆盖并集 / 全文补集 / 覆盖缺口统计纯函数
 │       └── db.py             # SQLite 连接、建表、示例数据
 └── frontend/
     ├── Dockerfile          # 多阶段构建：Vite build → nginx
     ├── nginx.conf          # 静态托管 + /api 反向代理
     └── src/
         ├── App.jsx         # 状态编排与冲突决策流
-        └── components/     # TextView / CodingForm / SearchBatchPanel / ConflictDialog / Sidebar / CooccurrenceView / SpeakerView / DistributionView
+        └── components/     # TextView / CodingForm / SearchBatchPanel / ConflictDialog / Sidebar / CooccurrenceView / SpeakerView / DistributionView / CoverageGapView
 ```

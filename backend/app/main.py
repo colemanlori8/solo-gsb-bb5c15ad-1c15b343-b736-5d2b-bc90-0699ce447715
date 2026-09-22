@@ -19,6 +19,7 @@ from .conflicts import (
     subtract_ranges,
 )
 from .cooccurrence import build_code_intervals, intersect_intervals
+from .coverage import compute_coverage_gaps
 from .db import get_db, init_db, list_codings, next_color
 from .distribution import compute_distribution
 from .speakers import compute_speaker_stats
@@ -602,6 +603,60 @@ def speaker_analysis(
         "document_length": len(content),
         "codes": [all_codes[cid] for cid in member_ids],
         "speakers": compute_speaker_stats(content, codings, member_ids),
+    }
+
+
+# ---------- 覆盖缺口 ----------
+
+@app.get("/api/documents/{document_id}/coverage-gaps")
+def coverage_gaps(
+    document_id: int,
+    codes: str | None = Query(default=None),
+    min_length: int = Query(default=0, ge=0),
+) -> dict:
+    """按当前文档与编码筛选返回未被覆盖的连续文本区间（覆盖缺口）。
+
+    先把所选编码的全部半开区间跨编码合并重叠 / 相邻部分，再对全文
+    [0, length) 求补集，因此文首、文尾与零标注场景都能正确保留。
+    查询参数：
+      - codes：逗号分隔的编码 id（?codes=1,2）；缺省统计全部编码；
+        空串（?codes=）表示不纳入任何编码，整文作为一个缺口返回；
+      - min_length：仅返回长度 ≥ 该值的缺口（缺省 0，即不过滤）；
+        gap_count / gap_char_count 始终为过滤前的全量值。
+    """
+    with get_db() as conn:
+        doc = get_document_or_404(conn, document_id)
+        all_codes = {
+            r["id"]: {"id": r["id"], "name": r["name"], "color": r["color"]}
+            for r in conn.execute("SELECT id, name, color FROM codes ORDER BY id")
+        }
+        if codes is None:
+            member_ids = sorted(all_codes)
+        else:
+            try:
+                member_ids = sorted(
+                    {int(x) for x in codes.split(",") if x.strip()}
+                )
+            except ValueError:
+                raise HTTPException(
+                    status_code=422,
+                    detail="codes 参数格式错误：应为逗号分隔的编码 id",
+                )
+            unknown = [cid for cid in member_ids if cid not in all_codes]
+            if unknown:
+                raise HTTPException(
+                    status_code=404, detail=f"编码不存在: {unknown}"
+                )
+        codings = list_codings(conn, document_id)
+
+    result = compute_coverage_gaps(
+        doc["content"], codings, member_ids, min_length
+    )
+    return {
+        "document_id": document_id,
+        "min_length": min_length,
+        "codes": [all_codes[cid] for cid in member_ids],
+        **result,
     }
 
 
