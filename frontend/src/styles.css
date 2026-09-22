@@ -684,6 +684,77 @@ textarea:focus {
   min-width: 130px;
 }
 
+/* ---------- 覆盖缺口视图 ---------- */
+
+.gap-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.gap-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.gap-minlen {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.gap-minlen input {
+  width: 76px;
+}
+
+.gap-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gap-pos {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.gap-list li {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.gap-list .cooc-segment {
+  flex: 1;
+  min-width: 0;
+}
+
+.gap-list li.gap-current .cooc-segment {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: #eff6ff;
+}
+
+.gap-to-form {
+  flex: none;
+  align-self: center;
+  white-space: nowrap;
+}
+
+.gap-full {
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-size: 14px;
+}
+
 /* ---------- 右栏 ---------- */
 
 .right-panel {

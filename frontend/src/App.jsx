@@ -7,6 +7,7 @@ import Sidebar from './components/Sidebar'
 import CooccurrenceView from './components/CooccurrenceView'
 import SpeakerView from './components/SpeakerView'
 import DistributionView from './components/DistributionView'
+import GapView from './components/GapView'
 import SearchBatchPanel from './components/SearchBatchPanel'
 
 export default function App() {
@@ -22,7 +23,7 @@ export default function App() {
   const [error, setError] = useState(null)
   const [showNewDoc, setShowNewDoc] = useState(false)
   const [newDoc, setNewDoc] = useState({ title: '', content: '' })
-  const [view, setView] = useState('text') // text | cooccurrence | speakers | distribution
+  const [view, setView] = useState('text') // text | cooccurrence | speakers | distribution | gaps
   const [coocStats, setCoocStats] = useState(null)
   const [coocLoading, setCoocLoading] = useState(false)
   const [coocError, setCoocError] = useState(null)
@@ -32,6 +33,11 @@ export default function App() {
   const [distStats, setDistStats] = useState(null)
   const [distLoading, setDistLoading] = useState(false)
   const [distError, setDistError] = useState(null)
+  const [gapStats, setGapStats] = useState(null)
+  const [gapLoading, setGapLoading] = useState(false)
+  const [gapError, setGapError] = useState(null)
+  const [gapMinLen, setGapMinLen] = useState(1) // 最小缺口长度筛选
+  const [gapCursor, setGapCursor] = useState(-1) // 上一处/下一处导航位置
   const [pendingLocate, setPendingLocate] = useState(null)
 
   const showError = useCallback((e) => {
@@ -161,6 +167,39 @@ export default function App() {
     loadDistribution()
   }, [loadDistribution])
 
+  // ---------- 覆盖缺口（随当前文档与编码筛选同步） ----------
+
+  const loadGaps = useCallback(async () => {
+    if (docId == null) return
+    // 与说话人分析一致：编码全部取消勾选时传空数组，全文即一个缺口
+    setGapLoading(true)
+    setGapError(null)
+    try {
+      setGapStats(await api.getGaps(docId, filteredCodeIds))
+    } catch (e) {
+      setGapStats(null)
+      setGapError(e.message || String(e))
+    } finally {
+      setGapLoading(false)
+    }
+    // docData 变化（新建/编辑/删除标注后 refresh）也要重新统计
+  }, [docId, filteredCodeIds, docData])
+
+  useEffect(() => {
+    loadGaps()
+  }, [loadGaps])
+
+  // 最小缺口长度筛选在前端进行，避免每次调整都重新请求
+  const visibleGaps = useMemo(
+    () => (gapStats?.gaps ?? []).filter((g) => g.length >= gapMinLen),
+    [gapStats, gapMinLen]
+  )
+
+  // 缺口数据或筛选变化后，导航游标回到未定位状态
+  useEffect(() => {
+    setGapCursor(-1)
+  }, [visibleGaps])
+
   // ---------- 编码创建 / 编辑（含冲突检测） ----------
 
   async function doSubmit(payload, resolution) {
@@ -284,6 +323,33 @@ export default function App() {
     setDocId(documentId)
     setView('text')
     setPendingLocate({ docId: documentId, start: seg.start, end: seg.end })
+  }
+
+  // 覆盖缺口：上一处/下一处导航，循环移动并切回正文闪烁定位
+  function handleGapNavigate(dir) {
+    if (visibleGaps.length === 0) return
+    const next =
+      gapCursor < 0
+        ? dir > 0
+          ? 0
+          : visibleGaps.length - 1
+        : (gapCursor + dir + visibleGaps.length) % visibleGaps.length
+    setGapCursor(next)
+    handleLocateSegment(visibleGaps[next])
+  }
+
+  // 覆盖缺口：点击某条缺口 → 记住位置并切回正文定位
+  function handleGapLocate(gap, index) {
+    setGapCursor(index)
+    handleLocateSegment(gap)
+  }
+
+  // 覆盖缺口：把整段缺口区间带入编码表单（复用拖选填表，提交仍走冲突预览）
+  function handleGapToForm(gap) {
+    setEditing(null)
+    setSelection({ start: gap.start, end: gap.end })
+    setView('text')
+    setPendingLocate({ docId, start: gap.start, end: gap.end })
   }
 
   // 正文渲染完成后处理来自统计视图的待定位片段
@@ -438,6 +504,14 @@ export default function App() {
             >
               分布对比
             </button>
+            <button
+              role="tab"
+              aria-selected={view === 'gaps'}
+              className={view === 'gaps' ? 'active' : ''}
+              onClick={() => setView('gaps')}
+            >
+              覆盖缺口
+            </button>
           </div>
           {view === 'text' ? (
             <TextView
@@ -463,6 +537,19 @@ export default function App() {
               loading={speakerLoading}
               error={speakerError}
               onLocateSegment={handleLocateSegment}
+            />
+          ) : view === 'gaps' ? (
+            <GapView
+              stats={gapStats}
+              loading={gapLoading}
+              error={gapError}
+              gaps={visibleGaps}
+              minLen={gapMinLen}
+              onMinLenChange={setGapMinLen}
+              cursor={gapCursor}
+              onNavigate={handleGapNavigate}
+              onLocate={handleGapLocate}
+              onBringToForm={handleGapToForm}
             />
           ) : (
             <DistributionView
